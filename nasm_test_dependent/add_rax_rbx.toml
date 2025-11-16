@@ -1,0 +1,8 @@
+
+[input]
+RAX = 42
+RBX = 7
+
+[expect]
+RAX = 49
+RBX = 7
