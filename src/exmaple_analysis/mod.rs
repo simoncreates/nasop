@@ -1,11 +1,8 @@
 use serde::Deserialize;
 use std::{collections::HashMap, fs, path::PathBuf};
-use unicorn_engine::{Arch, Mode, Prot, RegisterX86, Unicorn};
+use unicorn_engine::{Arch, Mode, Prot, Unicorn};
 
-use crate::{
-    assemble_nasm,
-    tools::{get_registers, register_from_str},
-};
+use crate::{assemble_nasm, data_representation::x86_register::X86Register, tools::get_registers};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DisplayFormat {
@@ -17,7 +14,7 @@ pub enum DisplayFormat {
 
 #[derive(Default, Debug, Clone)]
 pub struct RegisterState {
-    pub registers: std::collections::HashMap<RegisterX86, u64>,
+    pub registers: std::collections::HashMap<X86Register, u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,12 +24,12 @@ pub enum DisplayAccuracy {
 }
 
 // a list of all main important regisers for approximate analysis
-pub const APPROXIMATE_REGISTERS: &[RegisterX86] = &[
-    RegisterX86::EAX,
-    RegisterX86::EBX,
-    RegisterX86::ECX,
-    RegisterX86::EDX,
-    RegisterX86::ESI,
+pub const APPROXIMATE_REGISTERS: &[X86Register] = &[
+    X86Register::EAX,
+    X86Register::EBX,
+    X86Register::ECX,
+    X86Register::EDX,
+    X86Register::ESI,
 ];
 
 impl RegisterState {
@@ -48,7 +45,6 @@ impl RegisterState {
     pub fn simple_display(&self, accuracy: DisplayAccuracy, format: DisplayFormat) -> String {
         let mut result = String::new();
         let mut keys: Vec<_> = self.registers.keys().collect();
-        keys.sort();
         for key in keys {
             if APPROXIMATE_REGISTERS.contains(key) || matches!(accuracy, DisplayAccuracy::Exact) {
                 if !result.is_empty() {
@@ -64,7 +60,6 @@ impl RegisterState {
     pub fn column_display(&self, accuracy: DisplayAccuracy, format: DisplayFormat) -> String {
         let mut result = String::new();
         let mut keys: Vec<_> = self.registers.keys().collect();
-        keys.sort();
 
         for key in keys {
             if APPROXIMATE_REGISTERS.contains(key) || matches!(accuracy, DisplayAccuracy::Exact) {
@@ -75,7 +70,7 @@ impl RegisterState {
         result
     }
 
-    pub fn display_register(&self, reg: RegisterX86, format: DisplayFormat) -> String {
+    pub fn display_register(&self, reg: X86Register, format: DisplayFormat) -> String {
         if let Some(value) = self.registers.get(&reg) {
             let formatted = Self::format_value(*value, format);
             format!("{:?}: {}", reg, formatted)
@@ -110,7 +105,7 @@ impl From<IncomingTestMetadata> for TestMetadata {
         let input = if let Some(input_map) = value.input {
             let mut registers = HashMap::new();
             for (reg_str, val) in input_map {
-                if let Ok(reg) = register_from_str(&reg_str) {
+                if let Ok(reg) = reg_str.parse() {
                     registers.insert(reg, val);
                 }
             }
@@ -122,7 +117,7 @@ impl From<IncomingTestMetadata> for TestMetadata {
         let expect = if let Some(expect_map) = value.expect {
             let mut registers = HashMap::new();
             for (reg_str, val) in expect_map {
-                if let Ok(reg) = register_from_str(&reg_str) {
+                if let Ok(reg) = reg_str.parse() {
                     registers.insert(reg, val);
                 }
             }
@@ -226,10 +221,11 @@ impl ExaDB {
         uc.mem_map(STACK_ADDR, STACK_SIZE, Prot::ALL)
             .expect("map stack");
 
-        uc.reg_write(RegisterX86::RSP, STACK_ADDR + STACK_SIZE)
+        uc.reg_write(unicorn_engine::RegisterX86::RSP, STACK_ADDR + STACK_SIZE)
             .expect("set rsp");
         uc.mem_write(CODE_ADDR, &code).expect("mem_write code");
-        uc.reg_write(RegisterX86::RIP, CODE_ADDR).expect("set rip");
+        uc.reg_write(unicorn_engine::RegisterX86::RIP, CODE_ADDR)
+            .expect("set rip");
 
         set_metadata_registers(&mut uc, &data.metadata);
         let initial_regs = get_registers(&uc);

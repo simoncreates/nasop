@@ -268,3 +268,12 @@ impl TryFrom<capstone::RegId> for X86Register {
             .map_err(|_| "Failed to parse RegisterX86".to_string())
     }
 }
+
+/// wrapper to convert X86Register to unicorn_engine::RegisterX86
+struct UCX86Register(unicorn_engine::RegisterX86);
+
+impl From<&X86Register> for UCX86Register {
+    fn from(reg: &X86Register) -> Self {
+        let internal_str = reg.to_string();
+    }
+}
