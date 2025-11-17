@@ -8,3 +8,5 @@ unicorn-engine = "2.1.5"
 capstone = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.9.8"
+strum = "0.27.2"
+strum_macros = "0.27.2"
