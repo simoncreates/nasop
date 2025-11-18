@@ -12,7 +12,7 @@ fn main() {
 
     for ex in &exa_db.examples {
         println!("Running analysis for example: {:?}", ex.path);
-        let res = exa_db.get_analysis(&ex.path).unwrap();
+        let _res: &nasop::exmaple_analysis::AnalysisResult = exa_db.get_analysis(&ex.path).unwrap();
 
         let asm_file = "temp.asm";
         let bin_file = "temp.bin";

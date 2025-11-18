@@ -2,7 +2,11 @@ use serde::Deserialize;
 use std::{collections::HashMap, fs, path::PathBuf};
 use unicorn_engine::{Arch, Mode, Prot, Unicorn};
 
-use crate::{assemble_nasm, data_representation::x86_register::X86Register, tools::get_registers};
+use crate::{
+    assemble_nasm,
+    data_representation::x86_register::{UCX86Register, X86Register},
+    tools::get_registers,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum DisplayFormat {
@@ -44,7 +48,7 @@ impl RegisterState {
 
     pub fn simple_display(&self, accuracy: DisplayAccuracy, format: DisplayFormat) -> String {
         let mut result = String::new();
-        let mut keys: Vec<_> = self.registers.keys().collect();
+        let keys: Vec<_> = self.registers.keys().collect();
         for key in keys {
             if APPROXIMATE_REGISTERS.contains(key) || matches!(accuracy, DisplayAccuracy::Exact) {
                 if !result.is_empty() {
@@ -59,7 +63,7 @@ impl RegisterState {
 
     pub fn column_display(&self, accuracy: DisplayAccuracy, format: DisplayFormat) -> String {
         let mut result = String::new();
-        let mut keys: Vec<_> = self.registers.keys().collect();
+        let keys: Vec<_> = self.registers.keys().collect();
 
         for key in keys {
             if APPROXIMATE_REGISTERS.contains(key) || matches!(accuracy, DisplayAccuracy::Exact) {
@@ -264,7 +268,8 @@ fn set_metadata_registers(uc: &mut Unicorn<()>, metadata: &TestMetadata) {
     match metadata {
         TestMetadata::Full { input, expect: _ } => {
             for (reg, val) in &input.registers {
-                uc.reg_write(*reg, *val).expect("set metadata register");
+                uc.reg_write(*UCX86Register::from(reg), *val)
+                    .expect("set metadata register");
             }
         }
         TestMetadata::None => {}

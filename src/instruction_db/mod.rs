@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use capstone::{
-    Capstone, InsnDetail, InsnGroupId, RegId,
-    arch::{self, ArchDetail, BuildsCapstone, BuildsCapstoneSyntax, x86::X86OperandType},
+    Capstone, InsnGroupId, RegId,
+    arch::{self, ArchDetail, BuildsCapstone, x86::X86OperandType},
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,8 +25,8 @@ pub struct InsDB {
     pub instructions: HashMap<InstructionId, InstructionInfo>,
 }
 
-/// Convert register IDs → readable register names
 fn reg_names(regs: &[RegId]) -> String {
+    println!("current regs: {:?}", regs);
     regs.iter()
         .map(|&rid| {
             let internal_name = X86Register::try_from(rid).unwrap();
@@ -36,7 +36,6 @@ fn reg_names(regs: &[RegId]) -> String {
         .join(", ")
 }
 
-/// Convert instruction groups → readable names
 fn group_names(cs: &Capstone, groups: &[InsnGroupId]) -> String {
     groups
         .iter()

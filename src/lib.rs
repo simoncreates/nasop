@@ -57,11 +57,10 @@ fn test_nasm_unicorn_registers_step() {
     uc.mem_write(CODE_ADDR, &code).expect("mem_write code");
     uc.reg_write(RegisterX86::RIP, CODE_ADDR).expect("set rip");
 
-    // Hook every instruction: print address, first few bytes, and registers
     uc.add_code_hook(
         CODE_ADDR,
         CODE_ADDR + code.len() as u64,
-        |uc, addr: u64, size: u32| {
+        |uc, addr: u64, _size: u32| {
             // read up to 8 bytes of the current instruction for display
             let mut buf = vec![0u8; 8];
             let _ = uc.mem_read(addr, &mut buf);
