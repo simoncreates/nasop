@@ -1,4 +1,7 @@
 #![allow(nonstandard_style)]
+use std::str::FromStr;
+
+use capstone::Insn;
 use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, Display, AsRefStr, EnumIter)]
@@ -1528,4 +1531,16 @@ pub enum X86Instruction {
     XSHA256,
     XSTORE,
     XTEST,
+}
+
+impl<'a> TryFrom<&'a Insn<'a>> for X86Instruction {
+    type Error = String;
+
+    fn try_from(cs_ins: &'a Insn<'a>) -> Result<Self, Self::Error> {
+        if let Some(mnemonic) = cs_ins.mnemonic() {
+            X86Instruction::from_str(mnemonic).map_err(|e| e.to_string())
+        } else {
+            Err("Failed to get mnemonic from instruction".to_string())
+        }
+    }
 }

@@ -4,7 +4,7 @@ use unicorn_engine::{Arch, Mode, Prot, Unicorn};
 
 use crate::{
     assemble_nasm,
-    data_representation::x86_register::{UCX86Register, X86Register},
+    data_representation::x86_reg::{UCX86Register, X86Register},
     tools::get_registers,
 };
 

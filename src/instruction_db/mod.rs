@@ -6,7 +6,7 @@ use capstone::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::data_representation::x86_register::X86Register;
+use crate::data_representation::x86_reg::X86Register;
 
 pub type InstructionId = i32;
 pub type RegisterIdX86 = i32;

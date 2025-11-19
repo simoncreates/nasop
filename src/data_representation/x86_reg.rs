@@ -241,7 +241,6 @@ pub enum X86Register {
     FPTAG,
     MSR,
     MXCSR,
-
     FS_BASE,
     GS_BASE,
     FLAGS,
@@ -252,6 +251,27 @@ pub enum X86Register {
     FDS,
     FOP,
     ENDING,
+
+    /// Flag registers
+    OF,
+    SF,
+    ZF,
+    AF,
+    CF,
+    PF,
+    TF,
+    IF,
+    DF,
+    IOPL,
+    NT,
+    MD,
+    RF,
+    VM,
+    AC,
+    VIF,
+    VIP,
+    ID,
+    AI,
 }
 
 impl TryFrom<capstone::RegId> for X86Register {
@@ -528,6 +548,8 @@ impl From<&X86Register> for UCX86Register {
             X86Register::FDS => UCX86Register(unicorn_engine::RegisterX86::FDS),
             X86Register::FOP => UCX86Register(unicorn_engine::RegisterX86::FOP),
             X86Register::ENDING => UCX86Register(unicorn_engine::RegisterX86::ENDING),
+            // all flag registers map to INVALID in unicorn
+            _ => UCX86Register(unicorn_engine::RegisterX86::INVALID),
         }
     }
 }
@@ -537,5 +559,39 @@ impl Deref for UCX86Register {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl X86Register {
+    pub fn size_bits(self) -> u8 {
+        match self {
+            X86Register::AL | X86Register::CL | X86Register::DL | X86Register::BL => 8,
+            X86Register::AX | X86Register::CX | X86Register::DX | X86Register::BX => 16,
+            X86Register::EAX
+            | X86Register::ECX
+            | X86Register::EDX
+            | X86Register::EBX
+            | X86Register::ESP
+            | X86Register::EBP
+            | X86Register::ESI
+            | X86Register::EDI => 32,
+            X86Register::RAX
+            | X86Register::RCX
+            | X86Register::RDX
+            | X86Register::RBX
+            | X86Register::RSP
+            | X86Register::RBP
+            | X86Register::RSI
+            | X86Register::RDI
+            | X86Register::R8
+            | X86Register::R9
+            | X86Register::R10
+            | X86Register::R11
+            | X86Register::R12
+            | X86Register::R13
+            | X86Register::R14
+            | X86Register::R15 => 64,
+            _ => 0,
+        }
     }
 }

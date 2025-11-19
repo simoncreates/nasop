@@ -1,4 +1,4 @@
-use crate::{data_representation::x86_register::X86Register, exmaple_analysis::RegisterState};
+use crate::{data_representation::x86_reg::X86Register, exmaple_analysis::RegisterState};
 use unicorn_engine::{RegisterX86, Unicorn};
 
 pub fn get_registers(uc: &Unicorn<()>) -> RegisterState {
