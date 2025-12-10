@@ -1,0 +1,35 @@
+warning: unused imports: `InsSmntcs` and `OperandAccess`
+ --> src\data_representation\x86_ins.rs:7:53
+  |
+7 | use crate::data_representation::x86_ins_semantics::{InsSmntcs, OperandAccess};
+  |                                                     ^^^^^^^^^  ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ins_addr`
+   --> src\data_representation\x86_ins_semantics.rs:107:9
+    |
+107 |         ins_addr: u64,
+    |         ^^^^^^^^
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+help: if this is intentional, prefix it with an underscore
+    |
+107 |         _ins_addr: u64,
+    |         +
+help: you might have meant to pattern match on the similarly named constant `STACK_SIZE`
+    |
+107 -         ins_addr: u64,
+107 +         exmaple_analysis::ExaDB::analyze_file_data::STACK_SIZE: u64,
+    |
+
+warning: unused variable: `ins_size`
+   --> src\data_representation\x86_ins_semantics.rs:108:9
+    |
+108 |         ins_size: usize,
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ins_size`
+
+warning: `nasop` (lib) generated 3 warnings (run `cargo fix --lib -p nasop` to apply 2 suggestions)
+   Compiling nasop v0.1.0 (C:\Users\simon\Documents\github\fuckrust\nasop)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.08s
+     Running `target\debug\examples\test_analysis.exe`
