@@ -1,6 +1,5 @@
 pub mod data_representation;
 pub mod exmaple_analysis;
-pub mod instruction_db;
 pub mod tools;
 
 use std::fs;

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{data_representation::x86_reg::X86Register, exmaple_analysis::RegisterState};
 use unicorn_engine::{RegisterX86, Unicorn};
 
@@ -227,15 +229,21 @@ pub fn get_registers(uc: &Unicorn<()>) -> RegisterState {
         RegisterX86::FOP,
     ];
 
-    let mut regs_map: std::collections::HashMap<X86Register, u64> =
-        std::collections::HashMap::new();
+    let mut regs_map: HashMap<X86Register, u64> = HashMap::new();
 
-    // Try to read each register
     for reg in &all_registers {
-        if let Ok(value) = uc.reg_read(*reg)
-            && let Ok(reg_internal) = X86Register::try_from(*reg)
-        {
-            regs_map.insert(reg_internal, value);
+        match uc.reg_read(*reg) {
+            Ok(value) => match X86Register::try_from(*reg) {
+                Ok(reg_internal) => {
+                    regs_map.insert(reg_internal, value);
+                }
+                Err(e) => {
+                    println!("{e}")
+                }
+            },
+            Err(e) => {
+                println!("{e}")
+            }
         }
     }
 

@@ -63,7 +63,7 @@ impl RegisterState {
 
     pub fn column_display(&self, accuracy: DisplayAccuracy, format: DisplayFormat) -> String {
         let mut result = String::new();
-        let keys: Vec<_> = self.registers.keys().collect();
+        let keys: Vec<&X86Register> = self.registers.keys().collect();
 
         for key in keys {
             if APPROXIMATE_REGISTERS.contains(key) || matches!(accuracy, DisplayAccuracy::Exact) {
@@ -186,7 +186,7 @@ impl ExaDB {
         }
 
         for example in examples {
-            let analysis_result = self.analyze_f_data(&example);
+            let analysis_result = self.analyze_file_data(&example);
             let path = example.path.clone();
             self.add_example(example, analysis_result);
             println!("analyzed: {:?}", path);
@@ -206,7 +206,7 @@ impl ExaDB {
             );
         }
     }
-    pub fn analyze_f_data(&self, data: &ExaFData) -> AnalysisResult {
+    pub fn analyze_file_data(&self, data: &ExaFData) -> AnalysisResult {
         let asm_file = "temp.asm";
         let bin_file = "temp.bin";
         assemble_nasm(asm_file, bin_file, &data.content);
@@ -225,8 +225,11 @@ impl ExaDB {
         uc.mem_map(STACK_ADDR, STACK_SIZE, Prot::ALL)
             .expect("map stack");
 
-        uc.reg_write(unicorn_engine::RegisterX86::RSP, STACK_ADDR + STACK_SIZE)
-            .expect("set rsp");
+        uc.reg_write(
+            unicorn_engine::RegisterX86::RSP,
+            STACK_ADDR + STACK_SIZE / 2,
+        )
+        .expect("set rsp");
         uc.mem_write(CODE_ADDR, &code).expect("mem_write code");
         uc.reg_write(unicorn_engine::RegisterX86::RIP, CODE_ADDR)
             .expect("set rip");

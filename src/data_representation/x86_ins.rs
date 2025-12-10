@@ -4,6 +4,8 @@ use std::str::FromStr;
 use capstone::Insn;
 use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
 
+use crate::data_representation::x86_ins_semantics::{InsSmntcs, OperandAccess};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, Display, AsRefStr, EnumIter)]
 #[strum(serialize_all = "lowercase")]
 pub enum X86Instruction {

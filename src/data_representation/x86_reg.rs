@@ -8,7 +8,20 @@ use capstone::{
 };
 use strum_macros::{AsRefStr, Display, EnumIter, EnumString};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumString, Display, AsRefStr, EnumIter)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    EnumString,
+    Display,
+    AsRefStr,
+    EnumIter,
+    PartialOrd,
+    Ord,
+)]
 #[strum(serialize_all = "lowercase")]
 pub enum X86Register {
     INVALID,
@@ -284,6 +297,7 @@ impl TryFrom<capstone::RegId> for X86Register {
             .detail(true)
             .build()
             .map_err(|e| format!("Failed to build Capstone: {}", e))?;
+
         let capstone_name = cs.reg_name(rid).unwrap_or("invalid".into());
         capstone_name
             .parse()
@@ -295,10 +309,10 @@ impl TryFrom<unicorn_engine::RegisterX86> for X86Register {
     type Error = String;
 
     fn try_from(ureg: unicorn_engine::RegisterX86) -> Result<Self, Self::Error> {
-        let reg_str = format!("{:?}", ureg);
+        let reg_str = format!("{:?}", ureg).to_ascii_lowercase();
         reg_str
             .parse()
-            .map_err(|_| "Failed to parse RegisterX86".to_string())
+            .map_err(|_| format!("Failed to parse Unicorn RegisterX86 with name: {:?}", ureg))
     }
 }
 

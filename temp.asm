@@ -4,4 +4,4 @@ mov [rsp], eax    ; mem write (32-bit)
 mov ebx, [rsp+4]  ; mem read (32-bit)
 add eax, ebx      ; reg read/write
 mov [rsp+8], rax  ; mem write (64-bit)
-int3              ; no operands
+int3
