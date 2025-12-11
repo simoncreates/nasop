@@ -15,14 +15,14 @@ pub type BlockID = u64;
 #[derive(Debug, Clone)]
 pub struct CfgIns {
     smnts: InsSmntcs,
-    adress: u64,
+    address: u64,
     ins: X86Instruction,
 }
 
 impl std::fmt::Display for CfgIns {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "__{}__ \n with semantics: ", self.ins)?;
-        writeln!(f, "{}", self.smnts)
+        writeln!(f, "{}", self.ins)?;
+        Ok(())
     }
 }
 
@@ -42,6 +42,18 @@ pub struct AsmCfg {
 }
 
 impl AsmCfg {
+    // if there is a block, that contain that address, split it up into two
+    fn split_block(&mut self, addr: u64) {
+        println!("attempting to split block at addr {}", addr);
+        if let Some((b_id, idx)) = self.search_for_block_with_address(addr) {
+            let block = self.blocks.get_mut(&b_id).unwrap();
+
+            let tail_instructions = block.ins.split_off(idx);
+
+            self.create_block_and_mark(tail_instructions, None);
+        }
+    }
+
     fn enqueue_address(&mut self, addr: u64) {
         if self.search_for_adress(addr)
             || self.pending.contains(&addr)
@@ -90,7 +102,7 @@ impl AsmCfg {
             for ins in instructions.iter() {
                 let addr = ins.address();
                 let cfg_ins = CfgIns {
-                    adress: addr,
+                    address: addr,
                     smnts: decode_and_populate_semantics(&cs, ins).unwrap(),
                     ins: X86Instruction::try_from(ins).unwrap(),
                 };
@@ -105,6 +117,9 @@ impl AsmCfg {
                                 collected_cfg_ins.clone(),
                                 Some(InsJumpType::Direct(target)),
                             );
+                            // a jump can land in the middle of another block,
+                            // try to split that block
+                            self.split_block(target);
                             collected_cfg_ins.clear();
                             break;
                         }
@@ -117,6 +132,7 @@ impl AsmCfg {
                                 collected_cfg_ins.clone(),
                                 Some(InsJumpType::ConditionalImm(target)),
                             );
+                            self.split_block(target);
                             collected_cfg_ins.clear();
                             break;
                         }
@@ -161,7 +177,7 @@ impl AsmCfg {
 
     fn create_block_and_mark(&mut self, ins: Vec<CfgIns>, jmp_type: Option<InsJumpType>) {
         if let Some(first) = ins.first() {
-            let start_addr = first.adress;
+            let start_addr = first.address;
             if self.search_for_adress(start_addr) {
                 return;
             }
@@ -179,11 +195,34 @@ impl AsmCfg {
 
     fn search_for_adress(&self, adress: u64) -> bool {
         for block in &self.blocks {
-            if block.1.ins.iter().any(|v| v.adress == adress) {
+            if block.1.ins.iter().any(|v| v.address == adress) {
                 return true;
             }
         }
         false
+    }
+
+    // returns the id of the block and the index of the instruction
+    fn search_for_block_with_address(&self, address: u64) -> Option<(BlockID, usize)> {
+        for (block_id, block) in &self.blocks {
+            if let (Some(first), Some(last)) = (block.ins.first(), block.ins.last())
+                && address >= first.address
+                && address <= last.address
+            {
+                if let Some((idx, _)) = block
+                    .ins
+                    .iter()
+                    .enumerate()
+                    .find(|(_, ins)| ins.address == address)
+                {
+                    return Some((*block_id, idx));
+                } else {
+                    // todo: what if a instruction is split weirdly?
+                    return None;
+                }
+            }
+        }
+        None
     }
 }
 
@@ -194,21 +233,25 @@ impl std::fmt::Display for AsmCfg {
             writeln!(f, "Block: {id}")?;
             let ins_amount = block.ins.len();
             let addr_first = if let Some(ins) = block.ins.first() {
-                ins.adress
+                ins.address
             } else {
                 0
             };
             let addr_last = if let Some(ins) = block.ins.last() {
-                ins.adress
+                ins.address
             } else {
                 0
             };
 
             writeln!(f, " - {ins_amount} instructions")?;
             for ins in &block.ins {
-                writeln!(f, "{}", ins)?;
+                write!(f, " - {}", ins)?;
             }
-            writeln!(f, " - adress space from: {}, to: {}", addr_first, addr_last)?;
+            writeln!(
+                f,
+                "\n - adress space from: {}, to: {}",
+                addr_first, addr_last
+            )?;
             writeln!(f, " - jumps to: {:#?}", block.jmp_type)?;
         }
         Ok(())
@@ -216,8 +259,8 @@ impl std::fmt::Display for AsmCfg {
 }
 
 const CONDITIONAL_JUMPS: &[&str] = &[
-    "ja", "jae", "jb", "jbe", "jc", "jcxz", "jecxz", "jz", "jnz", "je", "jne", "jg", "jge", "jl",
-    "jle", "jo", "jno", "js", "jns", "jp", "jnp", "jpe", "jpo",
+    "ja", "jae", "jb", "jbe", "jcxz", "jecxz", "jz", "jnz", "je", "jne", "jg", "jge", "jl", "jle",
+    "jo", "jno", "js", "jns", "jp", "jnp", "jpe", "jpo",
 ];
 
 const TERMINATING_INS: &[&str] = &["int3", "ret"];
@@ -235,9 +278,10 @@ pub enum InsJumpType {
     Terminating,
 }
 fn jump_type(ins: &CfgIns) -> Option<InsJumpType> {
-    let mnemonic = ins.ins.to_string().to_ascii_lowercase();
+    let mnemonic = ins.ins.to_string().to_lowercase();
 
     if CONDITIONAL_JUMPS.contains(&mnemonic.as_str()) {
+        println!("found conditional jump: {}", ins);
         let target = ins.smnts.operand_reads.iter().find_map(|acc| {
             if let Some(AccessType::IMM(v)) = acc.access_type {
                 Some(v)
@@ -249,7 +293,7 @@ fn jump_type(ins: &CfgIns) -> Option<InsJumpType> {
             return Some(InsJumpType::ConditionalImm(t));
         }
 
-        // if there's no immediate, try to find an indirect operand (e.g. memory/reg)
+        // if there's no immediate, try to find an indirect operand
         let implicit_reads: Vec<OperandAccess> = ins
             .smnts
             .implicit_reads
@@ -357,10 +401,6 @@ fn main() {
     exa_db.generate_analysis_from_folder(base);
 
     for ex in &exa_db.examples {
-        let path_str = ex.path.to_string_lossy();
-        if !path_str.contains("jump") {
-            continue;
-        }
         println!("Running analysis for example: {:?}", ex.path);
         let _res: &nasop::exmaple_analysis::AnalysisResult = exa_db.get_analysis(&ex.path).unwrap();
 

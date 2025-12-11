@@ -8,7 +8,7 @@ use capstone::{
     },
 };
 
-use crate::data_representation::{x86_ins::X86Instruction, x86_reg::X86Register};
+use crate::data_representation::{x86_ins::X86Instruction as Ins, x86_reg::X86Register as R};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OperandRole {
@@ -27,7 +27,7 @@ pub struct MemoryAccess {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum AccessType {
     MEM(MemoryAccess),
-    REG(X86Register),
+    REG(R),
     IMM(u64),
 }
 
@@ -60,8 +60,8 @@ struct UninInsSmntcs {
     pub operand_writes: Vec<OperandAccess>,
     pub operand_writes_conditional: Vec<OperandAccess>,
 
-    pub implicit_reads: Vec<X86Register>,
-    pub implicit_writes: Vec<X86Register>,
+    pub implicit_reads: Vec<R>,
+    pub implicit_writes: Vec<R>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,8 +70,8 @@ pub struct InsSmntcs {
     pub operand_writes: Vec<OperandAccess>,
     pub operand_writes_conditional: Vec<OperandAccess>,
 
-    pub implicit_reads: Vec<X86Register>,
-    pub implicit_writes: Vec<X86Register>,
+    pub implicit_reads: Vec<R>,
+    pub implicit_writes: Vec<R>,
 }
 
 impl From<UninInsSmntcs> for InsSmntcs {
@@ -99,18 +99,11 @@ impl UninInsSmntcs {
         }
     }
 
-    pub fn pop_smnt_for_role(
-        &mut self,
-        cs: &Capstone,
-        role: OperandRole,
-        operand: X86Operand,
-        ins_addr: u64,
-        ins_size: usize,
-    ) {
+    pub fn pop_smnt_for_role(&mut self, cs: &Capstone, role: OperandRole, operand: X86Operand) {
         match operand.op_type {
             X86OperandType::Reg(reg_id) => {
                 if let Some(name) = cs.reg_name(reg_id)
-                    && let Ok(reg) = X86Register::from_str(&name)
+                    && let Ok(reg) = R::from_str(&name)
                 {
                     self.set_operand_access_for_role(role, Some(AccessType::REG(reg)));
                 }
@@ -167,24 +160,17 @@ impl Display for InsSmntcs {
 
 /// returns all the semantic information, which can be statically determined, about an instruction
 /// this does not include size of memory accesses or operands
-fn populate_semantics(ins: X86Instruction) -> UninInsSmntcs {
+fn populate_semantics(ins: Ins) -> UninInsSmntcs {
     match ins {
-        X86Instruction::ADD => UninInsSmntcs {
+        Ins::ADD => UninInsSmntcs {
             operand_reads: vec![OperandAccess::DEST, OperandAccess::SRC1],
             operand_writes: vec![OperandAccess::DEST],
             operand_writes_conditional: vec![],
 
             implicit_reads: Vec::new(),
-            implicit_writes: vec![
-                X86Register::OF,
-                X86Register::SF,
-                X86Register::ZF,
-                X86Register::AF,
-                X86Register::PF,
-                X86Register::CF,
-            ],
+            implicit_writes: vec![R::OF, R::SF, R::ZF, R::AF, R::PF, R::CF],
         },
-        X86Instruction::LEA => UninInsSmntcs {
+        Ins::LEA => UninInsSmntcs {
             operand_reads: vec![OperandAccess::SRC1],
             operand_writes: vec![OperandAccess::DEST],
             operand_writes_conditional: vec![],
@@ -193,7 +179,7 @@ fn populate_semantics(ins: X86Instruction) -> UninInsSmntcs {
             implicit_writes: Vec::new(),
         },
 
-        X86Instruction::MOV => UninInsSmntcs {
+        Ins::MOV => UninInsSmntcs {
             operand_reads: vec![OperandAccess::SRC1],
             operand_writes: vec![OperandAccess::DEST],
             operand_writes_conditional: vec![],
@@ -202,13 +188,30 @@ fn populate_semantics(ins: X86Instruction) -> UninInsSmntcs {
             implicit_writes: Vec::new(),
         },
 
-        X86Instruction::JMP => UninInsSmntcs {
+        Ins::JMP => UninInsSmntcs {
             operand_reads: vec![OperandAccess::DEST],
             operand_writes: vec![],
             operand_writes_conditional: vec![],
 
             implicit_reads: Vec::new(),
-            implicit_writes: vec![X86Register::RIP],
+            implicit_writes: vec![R::RIP],
+        },
+        Ins::INT3 => UninInsSmntcs {
+            operand_reads: vec![],
+            operand_writes: vec![],
+            operand_writes_conditional: vec![],
+
+            implicit_reads: Vec::new(),
+            implicit_writes: vec![R::IF, R::TF, R::NT, R::AC, R::RF, R::VM],
+        },
+
+        Ins::JE | Ins::JNE => UninInsSmntcs {
+            operand_reads: vec![OperandAccess::DEST],
+            operand_writes: vec![],
+            operand_writes_conditional: vec![],
+
+            implicit_reads: vec![R::ZF],
+            implicit_writes: vec![R::RIP],
         },
 
         _ => UninInsSmntcs {
@@ -224,7 +227,7 @@ fn populate_semantics(ins: X86Instruction) -> UninInsSmntcs {
 
 pub fn decode_and_populate_semantics(cs: &Capstone, cs_insn: &Insn) -> Option<InsSmntcs> {
     // obtain a typed X86Instruction from the already-decoded insn
-    if let Ok(x86_ins) = X86Instruction::try_from(cs_insn) {
+    if let Ok(x86_ins) = Ins::try_from(cs_insn) {
         let mut unint_semantics = populate_semantics(x86_ins);
 
         let detail = cs.insn_detail(cs_insn).ok()?;
@@ -236,17 +239,14 @@ pub fn decode_and_populate_semantics(cs: &Capstone, cs_insn: &Insn) -> Option<In
         let src1 = ops.next();
         let src2 = ops.next();
 
-        let ins_addr = cs_insn.address();
-        let ins_size = cs_insn.bytes().len();
-
         if let Some(op) = dest {
-            unint_semantics.pop_smnt_for_role(cs, OperandRole::DEST, op, ins_addr, ins_size);
+            unint_semantics.pop_smnt_for_role(cs, OperandRole::DEST, op);
         }
         if let Some(op) = src1 {
-            unint_semantics.pop_smnt_for_role(cs, OperandRole::SRC1, op, ins_addr, ins_size);
+            unint_semantics.pop_smnt_for_role(cs, OperandRole::SRC1, op);
         }
         if let Some(op) = src2 {
-            unint_semantics.pop_smnt_for_role(cs, OperandRole::SRC2, op, ins_addr, ins_size);
+            unint_semantics.pop_smnt_for_role(cs, OperandRole::SRC2, op);
         }
 
         return Some(InsSmntcs::from(unint_semantics));

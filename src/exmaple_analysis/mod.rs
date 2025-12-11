@@ -49,6 +49,7 @@ impl RegisterState {
     pub fn simple_display(&self, accuracy: DisplayAccuracy, format: DisplayFormat) -> String {
         let mut result = String::new();
         let keys: Vec<_> = self.registers.keys().collect();
+
         for key in keys {
             if APPROXIMATE_REGISTERS.contains(key) || matches!(accuracy, DisplayAccuracy::Exact) {
                 if !result.is_empty() {
@@ -89,12 +90,13 @@ pub struct AnalysisResult {
     pub final_registers: RegisterState,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct IncomingTestMetadata {
     pub input: Option<HashMap<String, u64>>,
     pub expect: Option<HashMap<String, u64>>,
 }
 
+#[derive(Debug)]
 pub enum TestMetadata {
     None,
 
@@ -109,7 +111,7 @@ impl From<IncomingTestMetadata> for TestMetadata {
         let input = if let Some(input_map) = value.input {
             let mut registers = HashMap::new();
             for (reg_str, val) in input_map {
-                if let Ok(reg) = reg_str.parse() {
+                if let Ok(reg) = reg_str.to_lowercase().parse() {
                     registers.insert(reg, val);
                 }
             }
@@ -121,7 +123,7 @@ impl From<IncomingTestMetadata> for TestMetadata {
         let expect = if let Some(expect_map) = value.expect {
             let mut registers = HashMap::new();
             for (reg_str, val) in expect_map {
-                if let Ok(reg) = reg_str.parse() {
+                if let Ok(reg) = reg_str.to_lowercase().parse() {
                     registers.insert(reg, val);
                 }
             }
@@ -191,18 +193,11 @@ impl ExaDB {
             self.add_example(example, analysis_result);
             println!("analyzed: {:?}", path);
             println!(
-                "intitial: \n{}",
-                self.get_analysis(&path)
-                    .unwrap()
-                    .initial_registers
-                    .column_display(DisplayAccuracy::Approximate, DisplayFormat::UnsignedInt)
-            );
-            println!(
                 "final: \n{}",
                 self.get_analysis(&path)
                     .unwrap()
                     .final_registers
-                    .column_display(DisplayAccuracy::Approximate, DisplayFormat::UnsignedInt)
+                    .simple_display(DisplayAccuracy::Approximate, DisplayFormat::UnsignedInt)
             );
         }
     }

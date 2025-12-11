@@ -1,0 +1,6 @@
+
+[input]
+RAX = 9
+
+[expect]
+RAX = 81
