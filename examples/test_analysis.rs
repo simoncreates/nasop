@@ -15,7 +15,7 @@ pub type BlockID = u64;
 #[derive(Debug, Clone)]
 pub struct CfgIns {
     smnts: InsSmntcs,
-    address: u64,
+    pub address: u64,
     ins: X86Instruction,
 }
 
@@ -28,44 +28,23 @@ impl std::fmt::Display for CfgIns {
 
 #[derive(Debug, Clone)]
 pub struct CfgBlock {
-    ins: Vec<CfgIns>,
+    // holds a vec of all adresses
+    ins: Vec<u64>,
     jmp_type: Option<InsJumpType>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AsmCfg {
+    bin_dec: Vec<(u64, CfgIns)>,
     blocks: HashMap<BlockID, CfgBlock>,
     current_id: u64,
-    adresses_to_do: Vec<u64>,
-    pending: HashSet<u64>,
-    visited: HashSet<u64>,
+    idx_to_do: Vec<usize>,
+    idx_pending: HashSet<usize>,
+    idx_visited: HashSet<usize>,
 }
 
 impl AsmCfg {
-    // if there is a block, that contain that address, split it up into two
-    fn split_block(&mut self, addr: u64) {
-        println!("attempting to split block at addr {}", addr);
-        if let Some((b_id, idx)) = self.search_for_block_with_address(addr) {
-            let block = self.blocks.get_mut(&b_id).unwrap();
-
-            let tail_instructions = block.ins.split_off(idx);
-
-            self.create_block_and_mark(tail_instructions, None);
-        }
-    }
-
-    fn enqueue_address(&mut self, addr: u64) {
-        if self.search_for_adress(addr)
-            || self.pending.contains(&addr)
-            || self.visited.contains(&addr)
-        {
-            return;
-        }
-        self.adresses_to_do.push(addr);
-        self.pending.insert(addr);
-    }
-
-    pub fn build_tree(&mut self, initial_address: u64, bin: &[u8]) {
+    pub fn new(initial_address: u64, bin: &[u8]) -> Self {
         let cs = Capstone::new()
             .x86()
             .mode(arch::x86::ArchMode::Mode64)
@@ -73,112 +52,146 @@ impl AsmCfg {
             .build()
             .expect("Failed to create Capstone object");
 
-        // enqueue initial address
-        self.enqueue_address(initial_address);
+        let all_ins = cs.disasm_all(bin, initial_address).unwrap();
+        let mut decoded_ins = Vec::new();
+        for ins in all_ins.iter() {
+            let cfg_ins = CfgIns {
+                address: ins.address(),
+                smnts: decode_and_populate_semantics(&cs, ins).unwrap(),
+                ins: X86Instruction::try_from(ins).unwrap(),
+            };
+            decoded_ins.push((ins.address(), cfg_ins));
+        }
+        let mut cfg = AsmCfg {
+            bin_dec: decoded_ins,
+            blocks: HashMap::new(),
+            current_id: 0,
+            idx_to_do: Vec::new(),
+            idx_pending: HashSet::new(),
+            idx_visited: HashSet::new(),
+        };
+        cfg.build_tree();
+        cfg
+    }
+    /// if there is a block, that contain that address, split it up into two
+    fn split_block(&mut self, addr: u64) {
+        println!("attempting to split block at addr {}", addr);
+        if let Some((b_id, idx)) = self.search_for_block_with_address(addr) {
+            let block = self.blocks.get_mut(&b_id).unwrap();
 
-        while let Some(current_init_adress) = self.adresses_to_do.pop() {
-            self.pending.remove(&current_init_adress);
+            let tail_instructions = block.ins.split_off(idx);
+            let tail_jump_type = block.jmp_type.clone();
+            // create fallthrough
+            block.jmp_type = None;
+            self.create_block_and_mark(tail_instructions, tail_jump_type);
+        }
+    }
+
+    fn enqueue_idx(&mut self, idx: usize) {
+        if self.bin_dec.get(idx).is_none()
+            || self.idx_pending.contains(&idx)
+            || self.idx_visited.contains(&idx)
+        {
+            return;
+        }
+        self.idx_to_do.push(idx);
+        self.idx_pending.insert(idx);
+    }
+
+    pub fn build_tree(&mut self) {
+        // initial
+        self.enqueue_idx(0);
+
+        while let Some(current_idx) = self.idx_to_do.pop() {
+            self.idx_pending.remove(&current_idx);
 
             // skip if already created while it was still pending
-            if self.search_for_adress(current_init_adress)
-                || self.visited.contains(&current_init_adress)
-            {
+            if self.bin_dec.get(current_idx).is_none() || self.idx_visited.contains(&current_idx) {
                 continue;
             }
 
-            let bin_offset = current_init_adress
-                .checked_sub(initial_address)
-                .and_then(|ofs| usize::try_from(ofs).ok())
-                .unwrap();
-            if bin_offset >= bin.len() {
-                return;
-            }
-            let instructions = match cs.disasm_all(&bin[bin_offset..], current_init_adress) {
-                Ok(i) => i,
-                Err(e) => panic!("{e}"),
-            };
-            let mut collected_cfg_ins = Vec::new();
+            let mut collected_adresses: Vec<u64> = Vec::new();
 
-            for ins in instructions.iter() {
-                let addr = ins.address();
-                let cfg_ins = CfgIns {
-                    address: addr,
-                    smnts: decode_and_populate_semantics(&cs, ins).unwrap(),
-                    ins: X86Instruction::try_from(ins).unwrap(),
-                };
-
-                let jmp_type = jump_type(&cfg_ins);
+            for (idx, (adress, ins)) in self.bin_dec.iter().enumerate().skip(current_idx) {
+                let jmp_type = jump_type(ins);
                 if let Some(jmp) = jmp_type {
                     match jmp {
                         InsJumpType::Direct(target) => {
-                            collected_cfg_ins.push(cfg_ins);
-                            self.enqueue_address(target); // only target, no fallthrough
+                            collected_adresses.push(*adress);
+                            self.enqueue_idx_from_adress(target); // no fallthrough, jump only
+
                             self.create_block_and_mark(
-                                collected_cfg_ins.clone(),
+                                collected_adresses.clone(),
                                 Some(InsJumpType::Direct(target)),
                             );
                             // a jump can land in the middle of another block,
                             // try to split that block
                             self.split_block(target);
-                            collected_cfg_ins.clear();
+                            collected_adresses.clear();
                             break;
                         }
                         InsJumpType::ConditionalImm(target) => {
-                            collected_cfg_ins.push(cfg_ins);
-                            let next_addr = addr + ins.bytes().len() as u64; // fallthrough
-                            self.enqueue_address(target);
-                            self.enqueue_address(next_addr);
+                            // handle fallthrough
+                            collected_adresses.push(*adress);
+                            self.enqueue_idx(idx + 1); // fallthrough
+                            self.enqueue_idx_from_adress(target);
+
                             self.create_block_and_mark(
-                                collected_cfg_ins.clone(),
+                                collected_adresses.clone(),
                                 Some(InsJumpType::ConditionalImm(target)),
                             );
                             self.split_block(target);
-                            collected_cfg_ins.clear();
+                            collected_adresses.clear();
                             break;
                         }
                         InsJumpType::ConditionalIndirect(op) => {
-                            collected_cfg_ins.push(cfg_ins);
+                            collected_adresses.push(*adress);
                             // fallthrough only
-                            let next_addr = addr + ins.bytes().len() as u64;
-                            self.enqueue_address(next_addr);
+                            self.enqueue_idx(idx + 1);
                             self.create_block_and_mark(
-                                collected_cfg_ins.clone(),
+                                collected_adresses.clone(),
                                 Some(InsJumpType::ConditionalIndirect(op)),
                             );
-                            collected_cfg_ins.clear();
+                            collected_adresses.clear();
                             break;
                         }
                         InsJumpType::Indirect(op) => {
-                            collected_cfg_ins.push(cfg_ins);
+                            collected_adresses.push(*adress);
                             self.create_block_and_mark(
-                                collected_cfg_ins.clone(),
+                                collected_adresses.clone(),
                                 Some(InsJumpType::Indirect(op)),
                             );
-                            collected_cfg_ins.clear();
+                            collected_adresses.clear();
                             break;
                         }
                         InsJumpType::Terminating => {
-                            collected_cfg_ins.push(cfg_ins);
-                            self.create_block_and_mark(collected_cfg_ins.clone(), None);
-                            collected_cfg_ins.clear();
+                            collected_adresses.push(*adress);
+                            self.create_block_and_mark(collected_adresses.clone(), None);
+                            collected_adresses.clear();
                             break;
                         }
                     }
                 }
 
-                collected_cfg_ins.push(cfg_ins);
+                collected_adresses.push(*adress);
+                self.idx_visited.insert(idx);
             }
 
-            if !collected_cfg_ins.is_empty() {
-                self.create_block_and_mark(collected_cfg_ins, None);
+            if !collected_adresses.is_empty() {
+                self.create_block_and_mark(collected_adresses, None);
             }
         }
     }
 
-    fn create_block_and_mark(&mut self, ins: Vec<CfgIns>, jmp_type: Option<InsJumpType>) {
+    fn enqueue_idx_from_adress(&mut self, addr: u64) {
+        if let Some(idx) = self.search_for_idx_with_addr(addr) {
+            self.enqueue_idx(idx); // only target, no fallthrough
+        }
+    }
+
+    fn create_block_and_mark(&mut self, ins: Vec<u64>, jmp_type: Option<InsJumpType>) {
         if let Some(first) = ins.first() {
-            let start_addr = first.address;
-            if self.search_for_adress(start_addr) {
+            if self.search_for_adress(*first) {
                 return;
             }
             self.blocks.insert(
@@ -189,31 +202,39 @@ impl AsmCfg {
                 },
             );
             self.current_id += 1;
-            self.visited.insert(start_addr);
         }
     }
 
     fn search_for_adress(&self, adress: u64) -> bool {
         for block in &self.blocks {
-            if block.1.ins.iter().any(|v| v.address == adress) {
+            if block.1.ins.contains(&adress) {
                 return true;
             }
         }
         false
     }
 
+    fn search_for_idx_with_addr(&self, addr: u64) -> Option<usize> {
+        for (idx, (idx_address, _)) in self.bin_dec.iter().enumerate() {
+            if addr == *idx_address {
+                return Some(idx);
+            }
+        }
+        None
+    }
+
     // returns the id of the block and the index of the instruction
     fn search_for_block_with_address(&self, address: u64) -> Option<(BlockID, usize)> {
         for (block_id, block) in &self.blocks {
             if let (Some(first), Some(last)) = (block.ins.first(), block.ins.last())
-                && address >= first.address
-                && address <= last.address
+                && address >= *first
+                && address <= *last
             {
                 if let Some((idx, _)) = block
                     .ins
                     .iter()
                     .enumerate()
-                    .find(|(_, ins)| ins.address == address)
+                    .find(|(_, ins)| **ins == address)
                 {
                     return Some((*block_id, idx));
                 } else {
@@ -224,6 +245,24 @@ impl AsmCfg {
         }
         None
     }
+
+    fn get_all_instruction_idx_block(&self, block_id: BlockID) -> Vec<usize> {
+        let opt_block = self.blocks.get(&block_id);
+        let mut ins_idx = Vec::new();
+        match opt_block {
+            Some(b) => {
+                for addr in &b.ins {
+                    if let Some(idx) = self.search_for_idx_with_addr(*addr) {
+                        ins_idx.push(idx);
+                    }
+                }
+            }
+            None => {
+                return Vec::new();
+            }
+        }
+        ins_idx
+    }
 }
 
 impl std::fmt::Display for AsmCfg {
@@ -233,19 +272,19 @@ impl std::fmt::Display for AsmCfg {
             writeln!(f, "Block: {id}")?;
             let ins_amount = block.ins.len();
             let addr_first = if let Some(ins) = block.ins.first() {
-                ins.address
+                *ins
             } else {
                 0
             };
             let addr_last = if let Some(ins) = block.ins.last() {
-                ins.address
+                *ins
             } else {
                 0
             };
 
             writeln!(f, " - {ins_amount} instructions")?;
-            for ins in &block.ins {
-                write!(f, " - {}", ins)?;
+            for idx in &self.get_all_instruction_idx_block(*id) {
+                write!(f, " - {}", self.bin_dec[*idx].1)?;
             }
             writeln!(
                 f,
@@ -415,8 +454,7 @@ fn main() {
         let bin = bin_vec.as_slice();
 
         let addr = 0x1000;
-        let mut cfg = AsmCfg::default();
-        cfg.build_tree(addr, bin);
+        let cfg = AsmCfg::new(addr, bin);
         println!("{}", cfg)
     }
 }
